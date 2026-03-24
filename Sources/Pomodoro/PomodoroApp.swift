@@ -73,12 +73,22 @@ struct PomodoroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var settings = PomodoroSettings()
     @StateObject private var timer = PomodoroTimer()
+    @State private var overlayManager = OverlayManager()
 
     var body: some Scene {
         MenuBarExtra {
             TimerPopoverView(timer: timer, settings: settings)
                 .frame(width: 280)
                 .onAppear { timer.settings = settings }
+                .onChange(of: timer.completionAlert) { newValue in
+                    if let completedMode = newValue {
+                        overlayManager.show(mode: completedMode) {
+                            timer.dismissAlert()
+                        }
+                    } else {
+                        overlayManager.dismiss()
+                    }
+                }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: timer.mode.icon)
@@ -117,6 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 class PomodoroTimer: ObservableObject {
     @Published var mode: TimerMode = .work
     @Published var sessionsCompleted = 0
+    @Published var completionAlert: TimerMode? = nil // set when timer finishes, nil to dismiss
     var settings: PomodoroSettings?
 
     private var endDate: Date?
@@ -212,10 +223,15 @@ class PomodoroTimer: ObservableObject {
         skip()
         sendNotification(for: completedMode)
         NSSound(named: settings?.soundName ?? "Purr")?.play()
+        completionAlert = completedMode
 
         if shouldAutoStart {
             start()
         }
+    }
+
+    func dismissAlert() {
+        completionAlert = nil
     }
 
     private var lastDisplayTime = ""
@@ -500,6 +516,126 @@ struct SettingsPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(value.wrappedValue >= range.upperBound)
+            }
+        }
+    }
+}
+
+// MARK: - Completion Overlay
+
+@MainActor
+class OverlayManager {
+    private var window: NSPanel?
+    private var dismissAction: (() -> Void)?
+    private var autoDismissTask: Task<Void, Never>?
+
+    func show(mode: TimerMode, onDismiss: @escaping () -> Void) {
+        dismiss()
+        dismissAction = onDismiss
+
+        guard let screen = NSScreen.main else { return }
+        let panel = NSPanel(
+            contentRect: screen.frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .screenSaver
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.ignoresMouseEvents = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+        let overlayView = CompletionOverlayView(mode: mode) { [weak self] in
+            self?.dismiss()
+        }
+        panel.contentView = NSHostingView(rootView: overlayView)
+        panel.makeKeyAndOrderFront(nil)
+
+        // Fade in
+        panel.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.3
+            panel.animator().alphaValue = 1
+        }
+
+        self.window = panel
+
+        // Auto-dismiss after 8 seconds
+        autoDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            self.dismiss()
+        }
+    }
+
+    func dismiss() {
+        autoDismissTask?.cancel()
+        autoDismissTask = nil
+        guard let panel = window else { return }
+        let action = dismissAction
+        dismissAction = nil
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            panel.animator().alphaValue = 0
+        }, completionHandler: {
+            Task { @MainActor in
+                panel.orderOut(nil)
+                self.window = nil
+                action?()
+            }
+        })
+    }
+}
+
+struct CompletionOverlayView: View {
+    let mode: TimerMode
+    let onDismiss: () -> Void
+    @State private var appeared = false
+
+    var body: some View {
+        ZStack {
+            // Backdrop
+            Color.black.opacity(0.75)
+                .ignoresSafeArea()
+
+            // Content
+            VStack(spacing: 24) {
+                // Icon
+                Image(systemName: mode == .work ? "checkmark.circle.fill" : "bolt.fill")
+                    .font(.system(size: 64, weight: .light))
+                    .foregroundStyle(mode.accentColor)
+                    .scaleEffect(appeared ? 1 : 0.5)
+                    .opacity(appeared ? 1 : 0)
+
+                // Title
+                Text(mode.completionTitle)
+                    .font(.system(size: 36, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 10)
+
+                // Subtitle
+                Text(mode.completionBody)
+                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 10)
+
+                // Dismiss hint
+                Text("click anywhere to dismiss")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .padding(.top, 16)
+                    .opacity(appeared ? 1 : 0)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onDismiss() }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                appeared = true
             }
         }
     }

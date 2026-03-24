@@ -286,6 +286,7 @@ struct TimerPopoverView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Settings")
             }
 
             if showSettings {
@@ -353,6 +354,7 @@ struct TimerPopoverView: View {
                 }
                 .opacity(timer.hasStarted ? 1 : 0.3)
                 .disabled(!timer.hasStarted)
+                .help("Reset")
 
                 Button {
                     withAnimation(controlAnimation) {
@@ -367,12 +369,14 @@ struct TimerPopoverView: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
+                .help(timer.isRunning ? "Pause" : "Start")
 
                 circleButton(icon: "forward.fill") {
                     withAnimation(controlAnimation) { timer.skip() }
                 }
                 .opacity(timer.hasStarted ? 1 : 0.3)
                 .disabled(!timer.hasStarted)
+                .help("Skip")
             }
         }
     }

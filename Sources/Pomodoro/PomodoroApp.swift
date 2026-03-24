@@ -2,6 +2,48 @@ import SwiftUI
 import UserNotifications
 import AppKit
 
+// MARK: - Colors
+
+extension Color {
+    static let pomodoroWork = Color(red: 1.0, green: 0.42, blue: 0.42)   // #FF6B6B
+    static let pomodoroBreak = Color(red: 0.42, green: 0.80, blue: 0.47) // #6BCB77
+}
+
+// MARK: - Timer Mode
+
+enum TimerMode: String {
+    case work = "Focus"
+    case rest = "Break"
+
+    var icon: String {
+        switch self {
+        case .work: "timer"
+        case .rest: "cup.and.saucer.fill"
+        }
+    }
+
+    var accentColor: Color {
+        switch self {
+        case .work: .pomodoroWork
+        case .rest: .pomodoroBreak
+        }
+    }
+
+    var completionTitle: String {
+        switch self {
+        case .work: "Focus session done!"
+        case .rest: "Break's over!"
+        }
+    }
+
+    var completionBody: String {
+        switch self {
+        case .work: "Nice work. Take a 10-minute break."
+        case .rest: "Ready to focus again?"
+        }
+    }
+}
+
 // MARK: - App Entry Point
 
 @main
@@ -12,10 +54,10 @@ struct PomodoroApp: App {
     var body: some Scene {
         MenuBarExtra {
             TimerPopoverView(timer: timer)
-                .frame(width: 280, height: 380)
+                .frame(width: 280)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: timer.mode == .work ? "brain.head.profile" : "cup.and.saucer.fill")
+                Image(systemName: timer.mode.icon)
                 if timer.isRunning {
                     Text(timer.displayTime)
                         .monospacedDigit()
@@ -31,16 +73,11 @@ struct PomodoroApp: App {
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        setupNotifications()
-    }
-
-    private func setupNotifications() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    // Show notification even when app is focused
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -52,24 +89,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
 // MARK: - Timer State
 
-enum TimerMode: String {
-    case work = "Focus"
-    case rest = "Break"
-}
-
 @MainActor
 class PomodoroTimer: ObservableObject {
     @Published var mode: TimerMode = .work
-    @Published var isRunning = false
     @Published var sessionsCompleted = 0
 
     private var endDate: Date?
     private var pausedRemaining: TimeInterval?
-    private var displayLink: Timer?
+    private var ticker: Timer?
+    private var wakeObserver: NSObjectProtocol?
 
-    // Durations in seconds
     let workDuration: TimeInterval = 50 * 60
     let breakDuration: TimeInterval = 10 * 60
+
+    var isRunning: Bool { endDate != nil && pausedRemaining == nil }
+
+    var hasStarted: Bool { endDate != nil || pausedRemaining != nil }
 
     var currentDuration: TimeInterval {
         mode == .work ? workDuration : breakDuration
@@ -87,45 +122,43 @@ class PomodoroTimer: ObservableObject {
 
     var displayTime: String {
         let total = Int(remaining)
-        let m = total / 60
-        let s = total % 60
-        return String(format: "%02d:%02d", m, s)
+        return String(format: "%02d:%02d", total / 60, total % 60)
+    }
+
+    init() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
 
     func start() {
-        let duration = pausedRemaining ?? currentDuration
-        endDate = Date().addingTimeInterval(duration)
+        endDate = Date().addingTimeInterval(pausedRemaining ?? currentDuration)
         pausedRemaining = nil
-        isRunning = true
         startTicking()
-        observeWake()
     }
 
     func pause() {
         pausedRemaining = remaining
         endDate = nil
-        isRunning = false
         stopTicking()
     }
 
     func reset() {
         endDate = nil
         pausedRemaining = nil
-        isRunning = false
         stopTicking()
     }
 
     func skip() {
-        switchMode()
-    }
-
-    private func switchMode() {
+        let completedMode = mode
         stopTicking()
-        isRunning = false
         endDate = nil
         pausedRemaining = nil
 
-        if mode == .work {
+        if completedMode == .work {
             sessionsCompleted += 1
             mode = .rest
         } else {
@@ -134,17 +167,25 @@ class PomodoroTimer: ObservableObject {
     }
 
     private func timerCompleted() {
-        sendNotification()
-        playSound()
-        switchMode()
+        let completedMode = mode
+        skip()
+        sendNotification(for: completedMode)
+        NSSound(named: "Purr")?.play()
     }
+
+    private var lastDisplayTime = ""
 
     private func startTicking() {
         stopTicking()
-        displayLink = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        lastDisplayTime = ""
+        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let self = self else { return }
-                self.objectWillChange.send()
+                guard let self else { return }
+                let newTime = self.displayTime
+                if newTime != self.lastDisplayTime {
+                    self.lastDisplayTime = newTime
+                    self.objectWillChange.send()
+                }
                 if self.remaining <= 0 && self.isRunning {
                     self.timerCompleted()
                 }
@@ -153,26 +194,15 @@ class PomodoroTimer: ObservableObject {
     }
 
     private func stopTicking() {
-        displayLink?.invalidate()
-        displayLink = nil
+        ticker?.invalidate()
+        ticker = nil
     }
 
-    private func observeWake() {
-        NotificationCenter.default.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-    }
-
-    private func sendNotification() {
+    private func sendNotification(for completedMode: TimerMode) {
         let content = UNMutableNotificationContent()
-        content.title = mode == .work ? "Focus session done!" : "Break's over!"
-        content.body = mode == .work
-            ? "Nice work. Take a 10-minute break."
-            : "Ready to focus again?"
-        content.sound = .default
+        content.title = completedMode.completionTitle
+        content.body = completedMode.completionBody
+        content.sound = nil // NSSound handles audio
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
@@ -181,42 +211,33 @@ class PomodoroTimer: ObservableObject {
         )
         UNUserNotificationCenter.current().add(request)
     }
-
-    private func playSound() {
-        NSSound(named: "Purr")?.play()
-    }
 }
 
-// MARK: - Main Popover View
+// MARK: - Views
 
 struct TimerPopoverView: View {
     @ObservedObject var timer: PomodoroTimer
+    private let controlAnimation = Animation.easeInOut(duration: 0.2)
+
+    private var accent: Color { timer.mode.accentColor }
 
     var body: some View {
         VStack(spacing: 20) {
-            // Mode label
             Text(timer.mode.rawValue.uppercased())
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .tracking(2)
-                .foregroundStyle(accentColor.opacity(0.9))
+                .foregroundStyle(accent.opacity(0.9))
 
-            // Ring + time
+            // Ring + countdown
             ZStack {
-                // Background ring
                 Circle()
-                    .stroke(accentColor.opacity(0.15), lineWidth: 6)
-
-                // Progress ring
+                    .stroke(accent.opacity(0.12), lineWidth: 8)
                 Circle()
                     .trim(from: 0, to: timer.progress)
-                    .stroke(
-                        accentColor,
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                    )
+                    .stroke(accent, style: StrokeStyle(lineWidth: 12, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 0.5), value: timer.progress)
 
-                // Countdown
                 Text(timer.displayTime)
                     .font(.system(size: 56, weight: .light, design: .rounded))
                     .monospacedDigit()
@@ -227,54 +248,39 @@ struct TimerPopoverView: View {
 
             // Controls
             HStack(spacing: 24) {
-                // Reset
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { timer.reset() }
-                } label: {
-                    Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
+                circleButton(icon: "arrow.counterclockwise") {
+                    withAnimation(controlAnimation) { timer.reset() }
                 }
-                .buttonStyle(.plain)
-                .opacity(timer.isRunning || timer.remaining < timer.currentDuration ? 1 : 0.3)
-                .disabled(!timer.isRunning && timer.remaining >= timer.currentDuration)
+                .opacity(timer.hasStarted ? 1 : 0.3)
+                .disabled(!timer.hasStarted)
 
-                // Play / Pause
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(controlAnimation) {
                         timer.isRunning ? timer.pause() : timer.start()
                     }
                 } label: {
                     Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
                         .font(.system(size: 22, weight: .medium))
                         .frame(width: 56, height: 56)
-                        .background(accentColor)
+                        .background(accent)
                         .foregroundStyle(.white)
                         .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
 
-                // Skip
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) { timer.skip() }
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .frame(width: 40, height: 40)
-                        .background(.ultraThinMaterial)
-                        .clipShape(Circle())
+                circleButton(icon: "forward.fill") {
+                    withAnimation(controlAnimation) { timer.skip() }
                 }
-                .buttonStyle(.plain)
+                .opacity(timer.hasStarted ? 1 : 0.3)
+                .disabled(!timer.hasStarted)
             }
 
-            // Session count
+            // Session dots
             if timer.sessionsCompleted > 0 {
                 HStack(spacing: 4) {
                     ForEach(0..<min(timer.sessionsCompleted, 8), id: \.self) { _ in
                         Circle()
-                            .fill(Color(hex: "FF6B6B").opacity(0.7))
+                            .fill(accent.opacity(0.7))
                             .frame(width: 6, height: 6)
                     }
                     if timer.sessionsCompleted > 8 {
@@ -286,33 +292,25 @@ struct TimerPopoverView: View {
                 .transition(.opacity)
             }
 
-            // Quit
             Button("Quit") { NSApp.terminate(nil) }
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(.secondary)
                 .buttonStyle(.plain)
+                .help("Quit Pomodoro")
         }
         .padding(.vertical, 24)
         .padding(.horizontal, 20)
         .animation(.easeInOut(duration: 0.4), value: timer.mode)
     }
 
-    var accentColor: Color {
-        timer.mode == .work ? Color(hex: "FF6B6B") : Color(hex: "6BCB77")
-    }
-}
-
-// MARK: - Color Extension
-
-extension Color {
-    init(hex: String) {
-        let scanner = Scanner(string: hex)
-        var rgb: UInt64 = 0
-        scanner.scanHexInt64(&rgb)
-        self.init(
-            red: Double((rgb >> 16) & 0xFF) / 255,
-            green: Double((rgb >> 8) & 0xFF) / 255,
-            blue: Double(rgb & 0xFF) / 255
-        )
+    private func circleButton(icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial)
+                .clipShape(Circle())
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -1,0 +1,13 @@
+{
+  "": {
+    "dependencies": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/Pomodoro.d",
+    "object": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/Pomodoro.o",
+    "swift-dependencies": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/master.swiftdeps"
+  },
+  "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/Sources/Pomodoro/PomodoroApp.swift": {
+    "object": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/PomodoroApp.swift.o",
+    "swiftmodule": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/PomodoroApp~partial.swiftmodule",
+    "swift-dependencies": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/PomodoroApp.swiftdeps",
+    "diagnostics": "/Users/sarthak/Documents/Work/PersonalSpace/projects/productivity-tools/.build/arm64-apple-macosx/release/Pomodoro.build/PomodoroApp.dia"
+  }
+}

@@ -72,23 +72,24 @@ class PomodoroSettings: ObservableObject {
 struct PomodoroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var settings = PomodoroSettings()
-    @StateObject private var timer = PomodoroTimer()
-    @State private var overlayManager = OverlayManager()
+    @StateObject private var timer: PomodoroTimer
+
+    init() {
+        let s = PomodoroSettings()
+        let t = PomodoroTimer()
+        let overlay = OverlayManager()
+        t.settings = s
+        t.onTimerCompleted = { completedMode in
+            overlay.show(mode: completedMode) {}
+        }
+        _settings = StateObject(wrappedValue: s)
+        _timer = StateObject(wrappedValue: t)
+    }
 
     var body: some Scene {
         MenuBarExtra {
             TimerPopoverView(timer: timer, settings: settings)
                 .frame(width: 280)
-                .onAppear { timer.settings = settings }
-                .onChange(of: timer.completionAlert) { newValue in
-                    if let completedMode = newValue {
-                        overlayManager.show(mode: completedMode) {
-                            timer.dismissAlert()
-                        }
-                    } else {
-                        overlayManager.dismiss()
-                    }
-                }
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: timer.mode.icon)
@@ -127,8 +128,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 class PomodoroTimer: ObservableObject {
     @Published var mode: TimerMode = .work
     @Published var sessionsCompleted = 0
-    @Published var completionAlert: TimerMode? = nil // set when timer finishes, nil to dismiss
     var settings: PomodoroSettings?
+    var onTimerCompleted: ((TimerMode) -> Void)?
 
     private var endDate: Date?
     private var pausedRemaining: TimeInterval?
@@ -223,15 +224,11 @@ class PomodoroTimer: ObservableObject {
         skip()
         sendNotification(for: completedMode)
         NSSound(named: settings?.soundName ?? "Purr")?.play()
-        completionAlert = completedMode
+        onTimerCompleted?(completedMode)
 
         if shouldAutoStart {
             start()
         }
-    }
-
-    func dismissAlert() {
-        completionAlert = nil
     }
 
     private var lastDisplayTime = ""
@@ -540,12 +537,12 @@ class OverlayManager {
             backing: .buffered,
             defer: false
         )
-        panel.level = .screenSaver
+        panel.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
         let overlayView = CompletionOverlayView(mode: mode) { [weak self] in
             self?.dismiss()

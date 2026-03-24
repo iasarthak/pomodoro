@@ -9,6 +9,13 @@ APP_NAME="Pomodoro"
 BUNDLE_ID="com.sarthak.pomodoro"
 APP_DIR="$SCRIPT_DIR/$APP_NAME.app"
 
+echo "Running tests..."
+swift run PomodoroTests 2>&1
+if [ $? -ne 0 ]; then
+    echo "Tests failed! Aborting build."
+    exit 1
+fi
+
 echo "Building..."
 swift build -c release --product Pomodoro 2>&1
 

@@ -10,7 +10,7 @@ BUNDLE_ID="com.sarthak.pomodoro"
 APP_DIR="$SCRIPT_DIR/$APP_NAME.app"
 
 echo "Building..."
-swift build -c release 2>&1
+swift build -c release --product Pomodoro 2>&1
 
 echo "Creating app bundle..."
 rm -rf "$APP_DIR"

@@ -1,77 +1,14 @@
 import SwiftUI
 import UserNotifications
 import AppKit
-
-// MARK: - Colors
-
-extension Color {
-    static let pomodoroWork = Color(red: 1.0, green: 0.42, blue: 0.42)   // #FF6B6B
-    static let pomodoroBreak = Color(red: 0.42, green: 0.80, blue: 0.47) // #6BCB77
-}
-
-// MARK: - Timer Mode
-
-enum TimerMode: String {
-    case work = "Focus"
-    case rest = "Break"
-    case longRest = "Long Break"
-
-    var icon: String {
-        switch self {
-        case .work: "timer"
-        case .rest: "cup.and.saucer.fill"
-        case .longRest: "cup.and.saucer.fill"
-        }
-    }
-
-    var accentColor: Color {
-        switch self {
-        case .work: .pomodoroWork
-        case .rest, .longRest: .pomodoroBreak
-        }
-    }
-
-    var completionTitle: String {
-        switch self {
-        case .work: "Focus session done!"
-        case .rest: "Break's over!"
-        case .longRest: "Long break's over!"
-        }
-    }
-
-    var completionBody: String {
-        switch self {
-        case .work: "Nice work. Time for a break."
-        case .rest: "Ready to focus again?"
-        case .longRest: "Recharged? Let's go."
-        }
-    }
-}
-
-// MARK: - Settings
-
-class PomodoroSettings: ObservableObject {
-    @AppStorage("workMinutes") var workMinutes = 50
-    @AppStorage("breakMinutes") var breakMinutes = 10
-    @AppStorage("longBreakMinutes") var longBreakMinutes = 20
-    @AppStorage("longBreakInterval") var longBreakInterval = 4
-    @AppStorage("autoStartBreaks") var autoStartBreaks = false
-    @AppStorage("autoStartWork") var autoStartWork = false
-    @AppStorage("soundName") var soundName = "Purr"
-
-    static let availableSounds = ["Purr", "Ping", "Pop", "Blow", "Glass", "Hero", "Submarine", "Tink"]
-
-    var workDuration: TimeInterval { TimeInterval(workMinutes * 60) }
-    var breakDuration: TimeInterval { TimeInterval(breakMinutes * 60) }
-    var longBreakDuration: TimeInterval { TimeInterval(longBreakMinutes * 60) }
-}
+import PomodoroCore
 
 // MARK: - App Entry Point
 
 @main
 struct PomodoroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var settings = PomodoroSettings()
+    @StateObject private var settings: PomodoroSettings
     @StateObject private var timer: PomodoroTimer
 
     init() {
@@ -122,155 +59,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 }
 
-// MARK: - Timer State
-
-@MainActor
-class PomodoroTimer: ObservableObject {
-    @Published var mode: TimerMode = .work
-    @Published var sessionsCompleted = 0
-    var settings: PomodoroSettings?
-    var onTimerCompleted: ((TimerMode) -> Void)?
-
-    private var endDate: Date?
-    private var pausedRemaining: TimeInterval?
-    private var ticker: Timer?
-    private var wakeObserver: NSObjectProtocol?
-
-    var isRunning: Bool { endDate != nil && pausedRemaining == nil }
-    var hasStarted: Bool { endDate != nil || pausedRemaining != nil }
-
-    var currentDuration: TimeInterval {
-        guard let s = settings else { return 50 * 60 }
-        switch mode {
-        case .work: return s.workDuration
-        case .rest: return s.breakDuration
-        case .longRest: return s.longBreakDuration
-        }
-    }
-
-    var remaining: TimeInterval {
-        if let paused = pausedRemaining { return paused }
-        guard let end = endDate else { return currentDuration }
-        return max(0, end.timeIntervalSince(Date()))
-    }
-
-    var progress: Double {
-        1.0 - (remaining / currentDuration)
-    }
-
-    var displayTime: String {
-        let total = Int(remaining)
-        return String(format: "%02d:%02d", total / 60, total % 60)
-    }
-
-    init() {
-        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil, queue: .main
-        ) { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-    }
-
-    func start() {
-        endDate = Date().addingTimeInterval(pausedRemaining ?? currentDuration)
-        pausedRemaining = nil
-        startTicking()
-    }
-
-    func pause() {
-        pausedRemaining = remaining
-        endDate = nil
-        stopTicking()
-    }
-
-    func reset() {
-        endDate = nil
-        pausedRemaining = nil
-        stopTicking()
-    }
-
-    func skip() {
-        let completedMode = mode
-        stopTicking()
-        endDate = nil
-        pausedRemaining = nil
-        advanceMode(from: completedMode)
-    }
-
-    private func advanceMode(from completedMode: TimerMode) {
-        if completedMode == .work {
-            sessionsCompleted += 1
-            let interval = settings?.longBreakInterval ?? 4
-            if interval > 0 && sessionsCompleted % interval == 0 {
-                mode = .longRest
-            } else {
-                mode = .rest
-            }
-        } else {
-            mode = .work
-        }
-    }
-
-    private func timerCompleted() {
-        let completedMode = mode
-        let shouldAutoStart: Bool
-        if completedMode == .work {
-            shouldAutoStart = settings?.autoStartBreaks ?? false
-        } else {
-            shouldAutoStart = settings?.autoStartWork ?? false
-        }
-
-        skip()
-        sendNotification(for: completedMode)
-        NSSound(named: settings?.soundName ?? "Purr")?.play()
-        onTimerCompleted?(completedMode)
-
-        if shouldAutoStart {
-            start()
-        }
-    }
-
-    private var lastDisplayTime = ""
-
-    private func startTicking() {
-        stopTicking()
-        lastDisplayTime = ""
-        ticker = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                let newTime = self.displayTime
-                if newTime != self.lastDisplayTime {
-                    self.lastDisplayTime = newTime
-                    self.objectWillChange.send()
-                }
-                if self.remaining <= 0 && self.isRunning {
-                    self.timerCompleted()
-                }
-            }
-        }
-    }
-
-    private func stopTicking() {
-        ticker?.invalidate()
-        ticker = nil
-    }
-
-    private func sendNotification(for completedMode: TimerMode) {
-        let content = UNMutableNotificationContent()
-        content.title = completedMode.completionTitle
-        content.body = completedMode.completionBody
-        content.sound = nil
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        )
-        UNUserNotificationCenter.current().add(request)
-    }
-}
-
 // MARK: - Timer View
 
 struct TimerPopoverView: View {
@@ -283,7 +71,6 @@ struct TimerPopoverView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            // Header with settings gear
             HStack {
                 Spacer()
                 Text(timer.mode.rawValue.uppercased())
@@ -310,7 +97,6 @@ struct TimerPopoverView: View {
                     .transition(.opacity)
             }
 
-            // Footer
             HStack {
                 if timer.sessionsCompleted > 0 {
                     HStack(spacing: 4) {
@@ -342,7 +128,6 @@ struct TimerPopoverView: View {
 
     private var timerContent: some View {
         VStack(spacing: 20) {
-            // Ring + countdown
             ZStack {
                 Circle()
                     .stroke(accent.opacity(0.12), lineWidth: 8)
@@ -360,7 +145,6 @@ struct TimerPopoverView: View {
             }
             .frame(width: 180, height: 180)
 
-            // Controls
             HStack(spacing: 24) {
                 circleButton(icon: "arrow.counterclockwise") {
                     withAnimation(controlAnimation) { timer.reset() }
@@ -413,16 +197,12 @@ struct SettingsPanel: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            // Durations
             VStack(spacing: 10) {
                 durationRow("Focus", value: $settings.workMinutes, range: 1...90)
                 durationRow("Break", value: $settings.breakMinutes, range: 1...30)
                 durationRow("Long break", value: $settings.longBreakMinutes, range: 5...60)
             }
-
             Divider().opacity(0.3)
-
-            // Long break interval
             HStack {
                 Text("Long break every")
                     .font(.system(size: 12, design: .rounded))
@@ -436,10 +216,7 @@ struct SettingsPanel: View {
                 .labelsHidden()
                 .frame(width: 110)
             }
-
             Divider().opacity(0.3)
-
-            // Auto-start toggles
             VStack(spacing: 8) {
                 Toggle("Auto-start breaks", isOn: $settings.autoStartBreaks)
                     .font(.system(size: 12, design: .rounded))
@@ -448,10 +225,7 @@ struct SettingsPanel: View {
             }
             .toggleStyle(.switch)
             .controlSize(.mini)
-
             Divider().opacity(0.3)
-
-            // Sound
             HStack {
                 Text("Sound")
                     .font(.system(size: 12, design: .rounded))
@@ -550,7 +324,6 @@ class OverlayManager {
         panel.contentView = NSHostingView(rootView: overlayView)
         panel.makeKeyAndOrderFront(nil)
 
-        // Fade in
         panel.alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.3
@@ -559,7 +332,6 @@ class OverlayManager {
 
         self.window = panel
 
-        // Auto-dismiss after 8 seconds
         autoDismissTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 8_000_000_000)
             self.dismiss()
@@ -593,34 +365,28 @@ struct CompletionOverlayView: View {
 
     var body: some View {
         ZStack {
-            // Backdrop
             Color.black.opacity(0.75)
                 .ignoresSafeArea()
 
-            // Content
             VStack(spacing: 24) {
-                // Icon
                 Image(systemName: mode == .work ? "checkmark.circle.fill" : "bolt.fill")
                     .font(.system(size: 64, weight: .light))
                     .foregroundStyle(mode.accentColor)
                     .scaleEffect(appeared ? 1 : 0.5)
                     .opacity(appeared ? 1 : 0)
 
-                // Title
                 Text(mode.completionTitle)
                     .font(.system(size: 36, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 10)
 
-                // Subtitle
                 Text(mode.completionBody)
                     .font(.system(size: 18, weight: .regular, design: .rounded))
                     .foregroundStyle(.white.opacity(0.7))
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 10)
 
-                // Dismiss hint
                 Text("click anywhere to dismiss")
                     .font(.system(size: 13, design: .rounded))
                     .foregroundStyle(.white.opacity(0.35))

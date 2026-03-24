@@ -17,8 +17,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-# Copy binary
+# Copy binary and icon
 cp ".build/release/$APP_NAME" "$APP_DIR/Contents/MacOS/$APP_NAME"
+cp "$SCRIPT_DIR/Sources/Pomodoro/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
@@ -44,11 +45,22 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSUserNotificationAlertStyle</key>
     <string>alert</string>
 </dict>
 </plist>
 PLIST
 
-echo "Done! App at: $APP_DIR"
-echo "Run with: open $APP_DIR"
+# Install to /Applications
+echo "Installing to /Applications..."
+# Kill running instance if any
+pkill -x "$APP_NAME" 2>/dev/null || true
+sleep 0.5
+rm -rf "/Applications/$APP_NAME.app"
+cp -R "$APP_DIR" "/Applications/$APP_NAME.app"
+
+echo "Done! Installed to /Applications/$APP_NAME.app"
+echo "Opening..."
+open "/Applications/$APP_NAME.app"

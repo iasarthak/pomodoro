@@ -8,7 +8,7 @@ public class PomodoroTimer: ObservableObject {
     @Published public var mode: TimerMode = .work
     @Published public var sessionsCompleted = 0
     public var settings: PomodoroSettings?
-    public var onTimerCompleted: ((TimerMode) -> Void)?
+    public var onTimerCompleted: ((TimerMode, Bool) -> Void)?
 
     /// Injectable clock for testing — defaults to system time
     public var now: () -> Date = { Date() }
@@ -37,7 +37,7 @@ public class PomodoroTimer: ObservableObject {
     }
 
     public var progress: Double {
-        1.0 - (remaining / currentDuration)
+        min(max(1.0 - (remaining / currentDuration), 0.0), 1.0)
     }
 
     public var displayTime: String {
@@ -54,7 +54,13 @@ public class PomodoroTimer: ObservableObject {
             forName: NSWorkspace.didWakeNotification,
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.objectWillChange.send()
+            Task { @MainActor in
+                guard let self else { return }
+                self.objectWillChange.send()
+                if self.remaining <= 0 && self.isRunning {
+                    self.timerCompleted()
+                }
+            }
         }
     }
 
@@ -66,19 +72,30 @@ public class PomodoroTimer: ObservableObject {
     public func start() {
         endDate = now().addingTimeInterval(pausedRemaining ?? currentDuration)
         pausedRemaining = nil
+        objectWillChange.send()
         startTicking()
     }
 
     public func pause() {
+        guard endDate != nil else { return }
         pausedRemaining = remaining
         endDate = nil
         stopTicking()
+        objectWillChange.send()
     }
 
     public func reset() {
         endDate = nil
-        pausedRemaining = nil
+        pausedRemaining = currentDuration
         stopTicking()
+        objectWillChange.send()
+    }
+
+    public func switchMode(to newMode: TimerMode) {
+        guard !isRunning else { return }
+        mode = newMode
+        pausedRemaining = currentDuration
+        objectWillChange.send()
     }
 
     public func skip() {
@@ -123,11 +140,7 @@ public class PomodoroTimer: ObservableObject {
             sendNotification(for: completedMode)
             NSSound(named: settings?.soundName ?? "Purr")?.play()
         }
-        onTimerCompleted?(completedMode)
-
-        if shouldAutoStart {
-            start()
-        }
+        onTimerCompleted?(completedMode, shouldAutoStart)
     }
 
     private var lastDisplayTime = ""

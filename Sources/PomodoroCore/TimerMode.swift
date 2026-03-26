@@ -4,7 +4,7 @@ import SwiftUI
 
 public extension Color {
     static let pomodoroWork = Color(red: 1.0, green: 0.42, blue: 0.42)   // #FF6B6B
-    static let pomodoroBreak = Color(red: 0.42, green: 0.80, blue: 0.47) // #6BCB77
+    static let pomodoroBreak = Color(red: 0.31, green: 0.80, blue: 0.77) // #4ECDC4 teal
 }
 
 // MARK: - Timer Mode

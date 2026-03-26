@@ -9,6 +9,10 @@ public class PomodoroSettings: ObservableObject {
     @AppStorage("autoStartBreaks") public var autoStartBreaks = false
     @AppStorage("autoStartWork") public var autoStartWork = false
     @AppStorage("soundName") public var soundName = "Purr"
+    @AppStorage("idleReminderEnabled") public var idleReminderEnabled = true
+    @AppStorage("idleReminderMinutes") public var idleReminderMinutes = 30
+
+    public var idleReminderDuration: TimeInterval { TimeInterval(idleReminderMinutes * 60) }
 
     public static let availableSounds = ["Purr", "Ping", "Pop", "Blow", "Glass", "Hero", "Submarine", "Tink"]
 

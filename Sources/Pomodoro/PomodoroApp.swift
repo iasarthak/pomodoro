@@ -10,17 +10,35 @@ struct PomodoroApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var settings: PomodoroSettings
     @StateObject private var timer: PomodoroTimer
+    @StateObject private var idleMonitor: IdleMonitor
 
     init() {
         let s = PomodoroSettings()
         let t = PomodoroTimer()
         let overlay = OverlayManager()
         t.settings = s
-        t.onTimerCompleted = { completedMode in
-            overlay.show(mode: completedMode) {}
+        t.onTimerCompleted = { completedMode, shouldAutoStart in
+            overlay.show(mode: completedMode) {
+                if shouldAutoStart {
+                    t.start()
+                }
+            }
+        }
+        let idle = IdleMonitor(timer: t, settings: s)
+        idle.onIdleReminder = {
+            overlay.showIdleReminder(
+                onStart: {
+                    t.switchMode(to: .work)
+                    t.start()
+                },
+                onDismiss: {
+                    idle.resetIdleClock()
+                }
+            )
         }
         _settings = StateObject(wrappedValue: s)
         _timer = StateObject(wrappedValue: t)
+        _idleMonitor = StateObject(wrappedValue: idle)
     }
 
     var body: some Scene {
@@ -73,10 +91,29 @@ struct TimerPopoverView: View {
         VStack(spacing: 20) {
             HStack {
                 Spacer()
-                Text(timer.mode.rawValue.uppercased())
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .tracking(2)
-                    .foregroundStyle(accent.opacity(0.9))
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        timer.switchMode(to: timer.mode == .work ? .rest : .work)
+                    }
+                } label: {
+                    let nextMode: TimerMode = timer.mode == .work ? .rest : .work
+                    HStack(spacing: 6) {
+                        Text(timer.mode.rawValue.uppercased())
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .tracking(2)
+                            .foregroundStyle(accent.opacity(0.9))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary.opacity(0.2))
+                        Text(nextMode.rawValue.uppercased())
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .tracking(2)
+                            .foregroundStyle(nextMode.accentColor.opacity(0.2))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(timer.isRunning)
+                .accessibilityLabel("Switch to \(timer.mode == .work ? "break" : "focus")")
                 Spacer()
                 Button {
                     withAnimation(.easeInOut(duration: 0.25)) { showSettings.toggle() }
@@ -87,6 +124,7 @@ struct TimerPopoverView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Settings")
+                .accessibilityLabel("Settings")
             }
 
             if showSettings {
@@ -112,6 +150,8 @@ struct TimerPopoverView: View {
                         }
                     }
                     .transition(.opacity)
+                    .accessibilityElement()
+                    .accessibilityLabel("\(timer.sessionsCompleted) sessions completed")
                 }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
@@ -119,6 +159,7 @@ struct TimerPopoverView: View {
                     .foregroundStyle(.tertiary)
                     .buttonStyle(.plain)
                     .help("Quit Pomodoro")
+                    .accessibilityLabel("Quit Pomodoro")
             }
         }
         .padding(.vertical, 24)
@@ -152,6 +193,7 @@ struct TimerPopoverView: View {
                 .opacity(timer.hasStarted ? 1 : 0.3)
                 .disabled(!timer.hasStarted)
                 .help("Reset")
+                .accessibilityLabel("Reset timer")
 
                 Button {
                     withAnimation(controlAnimation) {
@@ -167,6 +209,8 @@ struct TimerPopoverView: View {
                 }
                 .buttonStyle(.plain)
                 .help(timer.isRunning ? "Pause" : "Start")
+                .keyboardShortcut(.space, modifiers: [])
+                .accessibilityLabel(timer.isRunning ? "Pause timer" : "Start timer")
 
                 circleButton(icon: "forward.fill") {
                     withAnimation(controlAnimation) { timer.skip() }
@@ -174,6 +218,7 @@ struct TimerPopoverView: View {
                 .opacity(timer.hasStarted ? 1 : 0.3)
                 .disabled(!timer.hasStarted)
                 .help("Skip")
+                .accessibilityLabel("Skip to next session")
             }
         }
     }
@@ -198,9 +243,9 @@ struct SettingsPanel: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 10) {
-                durationRow("Focus", value: $settings.workMinutes, range: 1...90)
-                durationRow("Break", value: $settings.breakMinutes, range: 1...30)
-                durationRow("Long break", value: $settings.longBreakMinutes, range: 5...60)
+                durationRow("Focus", value: $settings.workMinutes, range: 5...90)
+                durationRow("Break", value: $settings.breakMinutes, range: 1...30, step: 1)
+                durationRow("Long break", value: $settings.longBreakMinutes, range: 5...60, step: 1)
             }
             Divider().opacity(0.3)
             HStack {
@@ -242,11 +287,22 @@ struct SettingsPanel: View {
                     NSSound(named: newValue)?.play()
                 }
             }
+            Divider().opacity(0.3)
+            VStack(spacing: 10) {
+                Toggle("Idle reminder", isOn: $settings.idleReminderEnabled)
+                    .font(.system(size: 12, design: .rounded))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                if settings.idleReminderEnabled {
+                    durationRow("Remind after", value: $settings.idleReminderMinutes, range: 10...120, step: 5)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
         }
         .padding(.vertical, 8)
     }
 
-    private func durationRow(_ label: String, value: Binding<Int>, range: ClosedRange<Int>) -> some View {
+    private func durationRow(_ label: String, value: Binding<Int>, range: ClosedRange<Int>, step: Int = 5) -> some View {
         HStack {
             Text(label)
                 .font(.system(size: 12, design: .rounded))
@@ -255,7 +311,7 @@ struct SettingsPanel: View {
             HStack(spacing: 6) {
                 Button {
                     if value.wrappedValue > range.lowerBound {
-                        value.wrappedValue -= 5
+                        value.wrappedValue -= step
                         value.wrappedValue = max(value.wrappedValue, range.lowerBound)
                     }
                 } label: {
@@ -275,7 +331,7 @@ struct SettingsPanel: View {
 
                 Button {
                     if value.wrappedValue < range.upperBound {
-                        value.wrappedValue += 5
+                        value.wrappedValue += step
                         value.wrappedValue = min(value.wrappedValue, range.upperBound)
                     }
                 } label: {
@@ -296,65 +352,109 @@ struct SettingsPanel: View {
 
 @MainActor
 class OverlayManager {
-    private var window: NSPanel?
+    private var windows: [NSPanel] = []
     private var dismissAction: (() -> Void)?
-    private var autoDismissTask: Task<Void, Never>?
+
+
 
     func show(mode: TimerMode, onDismiss: @escaping () -> Void) {
         dismiss()
         dismissAction = onDismiss
 
-        guard let screen = NSScreen.main else { return }
-        let panel = NSPanel(
-            contentRect: screen.frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.ignoresMouseEvents = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        for screen in NSScreen.screens {
+            let panel = NSPanel(
+                contentRect: screen.frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.ignoresMouseEvents = false
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 
-        let overlayView = CompletionOverlayView(mode: mode) { [weak self] in
-            self?.dismiss()
+            let overlayView = CompletionOverlayView(mode: mode) { [weak self] in
+                self?.dismiss()
+            }
+            panel.contentView = NSHostingView(rootView: overlayView)
+            panel.makeKeyAndOrderFront(nil)
+
+            panel.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.3
+                panel.animator().alphaValue = 1
+            }
+
+            windows.append(panel)
         }
-        panel.contentView = NSHostingView(rootView: overlayView)
-        panel.makeKeyAndOrderFront(nil)
 
-        panel.alphaValue = 0
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.3
-            panel.animator().alphaValue = 1
-        }
 
-        self.window = panel
 
-        autoDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 8_000_000_000)
-            self.dismiss()
+    }
+
+    func showIdleReminder(onStart: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+        dismiss()
+        dismissAction = onDismiss
+
+        for screen in NSScreen.screens {
+            let panel = NSPanel(
+                contentRect: screen.frame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.level = NSWindow.Level(Int(CGShieldingWindowLevel()))
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = false
+            panel.ignoresMouseEvents = false
+            panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+
+            let overlayView = IdleReminderOverlayView(
+                onStart: { [weak self] in
+                    self?.dismiss()
+                    onStart()
+                },
+                onDismiss: { [weak self] in
+                    self?.dismiss()
+                }
+            )
+            panel.contentView = NSHostingView(rootView: overlayView)
+            panel.makeKeyAndOrderFront(nil)
+
+            panel.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.3
+                panel.animator().alphaValue = 1
+            }
+
+            windows.append(panel)
         }
     }
 
     func dismiss() {
-        autoDismissTask?.cancel()
-        autoDismissTask = nil
-        guard let panel = window else { return }
+        guard !windows.isEmpty else { return }
+        let panels = windows
         let action = dismissAction
         dismissAction = nil
+        windows = []
 
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.25
-            panel.animator().alphaValue = 0
-        }, completionHandler: {
-            Task { @MainActor in
-                panel.orderOut(nil)
-                self.window = nil
-                action?()
-            }
-        })
+        let lastIndex = panels.count - 1
+        for (index, panel) in panels.enumerated() {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25
+                panel.animator().alphaValue = 0
+            }, completionHandler: {
+                Task { @MainActor in
+                    panel.orderOut(nil)
+                    if index == lastIndex {
+                        action?()
+                    }
+                }
+            })
+        }
     }
 }
 
@@ -391,6 +491,70 @@ struct CompletionOverlayView: View {
                     .font(.system(size: 13, design: .rounded))
                     .foregroundStyle(.white.opacity(0.35))
                     .padding(.top, 16)
+                    .opacity(appeared ? 1 : 0)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { onDismiss() }
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                appeared = true
+            }
+        }
+    }
+}
+
+struct IdleReminderOverlayView: View {
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @State private var appeared = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.75)
+                .ignoresSafeArea()
+
+            VStack(spacing: 24) {
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 64, weight: .light))
+                    .foregroundStyle(Color.pomodoroWork)
+                    .scaleEffect(appeared ? 1 : 0.5)
+                    .opacity(appeared ? 1 : 0)
+
+                Text("Time to focus?")
+                    .font(.system(size: 36, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 10)
+
+                Text("You haven't started a session in a while.")
+                    .font(.system(size: 18, weight: .regular, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 10)
+
+                Button(action: onStart) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 14))
+                        Text("Start Focus")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 12)
+                    .background(Color.pomodoroWork)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
+                .padding(.top, 8)
+
+                Text("click anywhere to dismiss")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.35))
+                    .padding(.top, 8)
                     .opacity(appeared ? 1 : 0)
             }
         }

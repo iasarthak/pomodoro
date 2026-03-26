@@ -10,6 +10,7 @@ A minimal pomodoro timer for macOS. Lives in your menu bar, stays out of your wa
 - **50/10 focus cycles** — configurable work, break, and long break durations
 - **Circular progress ring** — visual countdown with smooth animation
 - **Fullscreen completion overlay** — appears above everything (including fullscreen apps) when a session ends
+- **Idle reminder** — fullscreen nudge if you haven't started a session in a while (default: 30 min, configurable). "Start Focus" button or click to dismiss. Auto-repeats.
 - **Long breaks** — automatic long break every N sessions (default: 4)
 - **Auto-start** — optionally auto-start breaks or focus sessions
 - **Sound picker** — choose from 8 macOS system sounds
@@ -43,10 +44,10 @@ The menu bar shows remaining time while the timer is running.
 
 ```
 Sources/
-  PomodoroCore/     ← library (timer logic, settings, mode)
-  Pomodoro/         ← executable (app, views, overlay)
+  PomodoroCore/     ← library (timer logic, settings, idle monitor, mode)
+  Pomodoro/         ← executable (app, views, overlays)
 Tests/
-  PomodoroTests/    ← 25 unit tests
+  PomodoroTests/    ← 35 unit tests
 ```
 
 Timer logic is extracted into `PomodoroCore` for testability. The timer uses date-based math (not decrementing counters) so it stays accurate through sleep/wake cycles.
@@ -57,7 +58,7 @@ Timer logic is extracted into `PomodoroCore` for testability. The timer uses dat
 swift run PomodoroTests
 ```
 
-25 tests covering state transitions, mode advancement, computed properties, completion callbacks, and edge cases.
+35 tests covering state transitions, mode advancement, computed properties, completion callbacks, idle monitor, and edge cases.
 
 ## Rebuild after changes
 

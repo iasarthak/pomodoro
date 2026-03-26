@@ -116,31 +116,32 @@ func runAllTests() -> Bool {
         try expectClose(timer.remaining, pausedRemaining, accuracy: 1.0)
     }
 
-    test("Reset clears all state") {
+    test("Reset stops running and resets to full duration") {
         let timer = makeTimerWithSettings(work: 50)
         timer.start()
         timer.reset()
         try expect(!timer.isRunning)
-        try expect(!timer.hasStarted)
+        try expect(timer.hasStarted, "reset pauses at start, ready to play")
         try expectClose(timer.remaining, 50 * 60)
     }
 
-    test("Reset while running stops cleanly") {
+    test("Reset while running stops and stays ready") {
         let timer = makeTimerWithSettings()
         timer.start()
         try expect(timer.isRunning)
         timer.reset()
         try expect(!timer.isRunning)
-        try expect(!timer.hasStarted)
+        try expect(timer.hasStarted, "stays ready to play after reset")
     }
 
-    test("Reset while paused clears paused state") {
+    test("Reset while paused resets to full duration") {
         let timer = makeTimerWithSettings()
         timer.start()
         timer.pause()
         try expect(timer.hasStarted)
         timer.reset()
-        try expect(!timer.hasStarted)
+        try expect(timer.hasStarted, "stays ready after reset")
+        try expect(!timer.isRunning)
         try expectClose(timer.remaining, timer.currentDuration)
     }
 
@@ -244,6 +245,18 @@ func runAllTests() -> Bool {
         try expectClose(timer.progress, 1.0, accuracy: 0.001)
     }
 
+    test("Progress clamped when settings change mid-timer") {
+        let timer = makeTimerWithSettings(work: 50)
+        let refDate = Date()
+        timer.now = { refDate }
+        timer.start()
+        timer.now = { refDate.addingTimeInterval(600) } // 10 min in
+        // Shrink duration so remaining > currentDuration
+        timer.settings?.workMinutes = 5
+        try expect(timer.progress >= 0.0, "progress must not go negative")
+        try expect(timer.progress <= 1.0, "progress must not exceed 1")
+    }
+
     test("Current duration reflects mode") {
         let timer = makeTimerWithSettings(work: 50, brk: 10, longBrk: 20)
         try expectEqual(timer.currentDuration, 50 * 60)
@@ -266,16 +279,24 @@ func runAllTests() -> Bool {
 
     print("\nCompletion Callback:")
 
-    test("Callback fires with correct mode") {
+    test("Callback fires with correct mode and auto-start flag") {
         let timer = makeTimerWithSettings()
         var callbackMode: TimerMode?
-        timer.onTimerCompleted = { mode in callbackMode = mode }
+        var callbackAutoStart: Bool?
+        timer.onTimerCompleted = { mode, autoStart in
+            callbackMode = mode
+            callbackAutoStart = autoStart
+        }
         timer.simulateCompletion()
         try expectEqual(callbackMode, .work)
+        try expectEqual(callbackAutoStart, false)
     }
 
     test("Auto-start break after work completion") {
         let timer = makeTimerWithSettings(autoBreaks: true)
+        timer.onTimerCompleted = { _, shouldAutoStart in
+            if shouldAutoStart { timer.start() }
+        }
         timer.simulateCompletion()
         try expect(timer.isRunning)
         try expectEqual(timer.mode, .rest)
@@ -283,6 +304,9 @@ func runAllTests() -> Bool {
 
     test("No auto-start by default") {
         let timer = makeTimerWithSettings()
+        timer.onTimerCompleted = { _, shouldAutoStart in
+            if shouldAutoStart { timer.start() }
+        }
         timer.simulateCompletion()
         try expect(!timer.isRunning)
     }
@@ -305,6 +329,33 @@ func runAllTests() -> Bool {
         timer.pause()
         try expect(!timer.isRunning)
         try expectEqual(timer.mode, .work)
+    }
+
+    test("Pause when not running keeps hasStarted false") {
+        let timer = makeTimerWithSettings()
+        timer.pause()
+        try expect(!timer.hasStarted, "pause from idle must not set hasStarted")
+    }
+
+    test("Switch mode when paused toggles and resets duration") {
+        let timer = makeTimerWithSettings(work: 50, brk: 10)
+        try expectEqual(timer.mode, .work)
+        timer.switchMode(to: .rest)
+        try expectEqual(timer.mode, .rest)
+        try expectClose(timer.remaining, 10 * 60, accuracy: 0.1)
+        try expect(!timer.isRunning)
+        // Switch back
+        timer.switchMode(to: .work)
+        try expectEqual(timer.mode, .work)
+        try expectClose(timer.remaining, 50 * 60, accuracy: 0.1)
+    }
+
+    test("Switch mode blocked while running") {
+        let timer = makeTimerWithSettings(work: 50, brk: 10)
+        timer.start()
+        try expect(timer.isRunning)
+        timer.switchMode(to: .rest)
+        try expectEqual(timer.mode, .work, "mode should not change while running")
     }
 
     test("Skip before start advances mode") {
@@ -339,7 +390,19 @@ extension String {
 struct TestRunner {
     @MainActor
     static func main() {
-        let success = runAllTests()
-        if !success { exit(1) }
+        let timerSuccess = runAllTests()
+
+        let idleResult = runIdleMonitorTests()
+        print("\n" + "=" * 50)
+        print("Idle Monitor: \(idleResult.passed) passed, \(idleResult.failed) failed")
+        if !idleResult.failures.isEmpty {
+            print("\nFailures:")
+            for (name, msg) in idleResult.failures {
+                print("  - \(name): \(msg)")
+            }
+        }
+        print("")
+
+        if !timerSuccess || idleResult.failed > 0 { exit(1) }
     }
 }

@@ -101,6 +101,11 @@ class ClipStashDelegate: NSObject, NSApplicationDelegate {
 struct MenuBarView: View {
     @ObservedObject var history: ClipboardHistory
     let onTogglePanel: () -> Void
+    @State private var selectedIndex = -1
+
+    private var visibleItems: [ClipItem] {
+        Array(history.items.prefix(15))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -115,44 +120,56 @@ struct MenuBarView: View {
                 }
                 .padding(.vertical, 24)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(history.items.prefix(15)) { item in
-                            Button {
-                                PasteService.shared.paste(item)
-                            } label: {
-                                HStack(spacing: 7) {
-                                    Image(systemName: menuBarIcon(for: item))
-                                        .font(.system(size: 9, weight: .medium))
-                                        .foregroundStyle(menuBarIconColor(for: item))
-                                        .frame(width: 12)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 1) {
+                            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                                Button {
+                                    PasteService.shared.paste(item)
+                                } label: {
+                                    HStack(spacing: 7) {
+                                        Image(systemName: menuBarIcon(for: item))
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundStyle(menuBarIconColor(for: item))
+                                            .frame(width: 12)
 
-                                    Text(item.preview)
-                                        .font(.system(size: 11, design: .rounded))
-                                        .lineLimit(1)
-                                        .foregroundStyle(.primary)
+                                        Text(item.preview)
+                                            .font(.system(size: 11, design: .rounded))
+                                            .lineLimit(1)
+                                            .foregroundStyle(.primary)
 
-                                    Spacer()
+                                        Spacer()
 
-                                    if item.copyCount > 1 {
-                                        Text("×\(item.copyCount)")
-                                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                                            .foregroundStyle(.secondary.opacity(0.4))
+                                        if item.copyCount > 1 {
+                                            Text("×\(item.copyCount)")
+                                                .font(.system(size: 9, weight: .bold, design: .rounded))
+                                                .foregroundStyle(.secondary.opacity(0.4))
+                                        }
+
+                                        Text(item.relativeTime())
+                                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                                            .foregroundStyle(.secondary.opacity(0.5))
                                     }
-
-                                    Text(item.relativeTime())
-                                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.secondary.opacity(0.5))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .fill(index == selectedIndex ? Color.accentColor.opacity(0.25) : Color.clear)
+                                    )
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
+                                .buttonStyle(.plain)
+                                .id(item.id)
                             }
-                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .frame(maxHeight: 320)
+                    .onChange(of: selectedIndex) {
+                        if let item = visibleItems[safe: selectedIndex] {
+                            proxy.scrollTo(item.id, anchor: .center)
                         }
                     }
-                    .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 320)
             }
 
             Divider().opacity(0.15)
@@ -184,6 +201,33 @@ struct MenuBarView: View {
             .padding(.vertical, 8)
         }
         .padding(.vertical, 8)
+        .onKeyPress(.downArrow) {
+            if selectedIndex < visibleItems.count - 1 {
+                selectedIndex += 1
+            }
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            if selectedIndex > 0 {
+                selectedIndex -= 1
+            }
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if let item = visibleItems[safe: selectedIndex] {
+                PasteService.shared.paste(item)
+            }
+            return .handled
+        }
+        .onKeyPress(.delete) {
+            if let item = visibleItems[safe: selectedIndex] {
+                history.removeItem(id: item.id)
+                if selectedIndex >= visibleItems.count {
+                    selectedIndex = max(0, visibleItems.count - 1)
+                }
+            }
+            return .handled
+        }
     }
 
     private func menuBarIcon(for item: ClipItem) -> String {

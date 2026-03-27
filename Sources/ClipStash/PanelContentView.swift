@@ -124,7 +124,7 @@ struct PanelContentView: View {
             // Footer
             Divider().opacity(0.15)
             HStack(spacing: 16) {
-                keyHint("⌘⇧C", "toggle")
+                keyHint("⌘⌥C", "toggle")
                 keyHint("↵", "paste")
                 keyHint("⌫", "delete")
                 keyHint("esc", "close")

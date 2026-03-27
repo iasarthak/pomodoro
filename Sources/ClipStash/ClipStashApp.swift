@@ -52,7 +52,7 @@ class ClipStashDelegate: NSObject, NSApplicationDelegate {
     private func setupHotkeys() {
         // Global monitor — Cmd+Shift+V
         globalHotkey = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.isCmdShiftC(event) == true {
+            if self?.isCmdOptC(event) == true {
                 Task { @MainActor in
                     self?.togglePanel()
                 }
@@ -61,7 +61,7 @@ class ClipStashDelegate: NSObject, NSApplicationDelegate {
 
         // Local monitor — when our app is focused
         localHotkey = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.isCmdShiftC(event) == true {
+            if self?.isCmdOptC(event) == true {
                 Task { @MainActor in
                     self?.togglePanel()
                 }
@@ -71,9 +71,9 @@ class ClipStashDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func isCmdShiftC(_ event: NSEvent) -> Bool {
+    private func isCmdOptC(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 0x08 && flags == [.command, .shift] // 0x08 = 'c'
+        return event.keyCode == 0x08 && flags == [.command, .option] // 0x08 = 'c'
     }
 
     @MainActor
@@ -199,7 +199,7 @@ struct MenuBarView: View {
                     onTogglePanel()
                 } label: {
                     HStack(spacing: 4) {
-                        Text("⌘⇧C")
+                        Text("⌘⌥C")
                             .font(.system(size: 9, weight: .semibold, design: .rounded))
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)

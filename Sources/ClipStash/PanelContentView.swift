@@ -5,6 +5,7 @@ struct PanelContentView: View {
     @ObservedObject var history: ClipboardHistory
     @State private var searchQuery = ""
     @State private var selectedIndex = 0
+    @State private var keyMonitor: Any?
     let onSelect: (ClipItem) -> Void
     let onDismiss: () -> Void
 
@@ -139,39 +140,58 @@ struct PanelContentView: View {
                 .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.4), radius: 30, y: 10)
-        .onKeyPress(.escape) {
-            onDismiss()
-            return .handled
-        }
-        .onKeyPress(.downArrow) {
-            if selectedIndex < filteredItems.count - 1 {
-                selectedIndex += 1
-            }
-            return .handled
-        }
-        .onKeyPress(.upArrow) {
-            if selectedIndex > 0 {
-                selectedIndex -= 1
-            }
-            return .handled
-        }
-        .onKeyPress(.return) {
-            if let item = filteredItems[safe: selectedIndex] {
-                onSelect(item)
-            }
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            if let item = filteredItems[safe: selectedIndex] {
-                history.removeItem(id: item.id)
-                if selectedIndex >= filteredItems.count {
-                    selectedIndex = max(0, filteredItems.count - 1)
-                }
-            }
-            return .handled
-        }
         .onChange(of: searchQuery) {
             selectedIndex = 0
+        }
+        .onAppear {
+            selectedIndex = 0
+            installKeyMonitor()
+        }
+        .onDisappear {
+            removeKeyMonitor()
+        }
+    }
+
+    private func installKeyMonitor() {
+        removeKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [self] event in
+            switch Int(event.keyCode) {
+            case 53: // Escape
+                onDismiss()
+                return nil
+            case 125: // Down arrow
+                if selectedIndex < filteredItems.count - 1 {
+                    selectedIndex += 1
+                }
+                return nil
+            case 126: // Up arrow
+                if selectedIndex > 0 {
+                    selectedIndex -= 1
+                }
+                return nil
+            case 36: // Return
+                if let item = filteredItems[safe: selectedIndex] {
+                    onSelect(item)
+                }
+                return nil
+            case 51: // Delete
+                if let item = filteredItems[safe: selectedIndex] {
+                    history.removeItem(id: item.id)
+                    if selectedIndex >= filteredItems.count {
+                        selectedIndex = max(0, filteredItems.count - 1)
+                    }
+                }
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 

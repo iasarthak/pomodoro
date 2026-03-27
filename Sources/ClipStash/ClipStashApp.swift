@@ -37,11 +37,6 @@ class ClipStashDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        // Request accessibility if not granted
-        if !PasteService.checkAccessibility() {
-            PasteService.requestAccessibility()
-        }
-
         // Start clipboard monitoring
         Task { @MainActor in
             let m = ClipboardMonitor()
@@ -108,8 +103,32 @@ struct MenuBarView: View {
         Array(history.items.prefix(15))
     }
 
+    private var needsAccessibility: Bool {
+        !PasteService.checkAccessibility()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            // Accessibility nudge — only when not granted, user-initiated
+            if needsAccessibility {
+                Button {
+                    PasteService.requestAccessibility()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                        Text("Enable Accessibility for paste & hotkey")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                Divider().opacity(0.15)
+            }
+
             if history.items.isEmpty {
                 VStack(spacing: 10) {
                     Image(systemName: "doc.on.clipboard")

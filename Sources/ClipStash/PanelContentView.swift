@@ -24,60 +24,82 @@ struct PanelContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search
+            // Search bar
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.6))
 
-                TextField("Search...", text: $searchQuery)
+                TextField("Search clips...", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13, design: .rounded))
+                    .font(.system(size: 14, design: .rounded))
 
                 if !searchQuery.isEmpty {
                     Button {
                         searchQuery = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary.opacity(0.4))
                     }
                     .buttonStyle(.plain)
                 }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial)
 
-            Divider().opacity(0.3)
+                // Item count
+                Text("\(history.items.count)")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary.opacity(0.4))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.05))
+                    .clipShape(Capsule())
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider().opacity(0.15)
 
             // Frequent bar
             if !filteredFrequent.isEmpty {
                 FrequentBar(items: filteredFrequent) { item in
                     onSelect(item)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
 
-                Divider().opacity(0.3)
+                Divider().opacity(0.15)
+            }
+
+            // Recent list header
+            if !filteredItems.isEmpty {
+                HStack {
+                    Text("RECENT")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary.opacity(0.4))
+                        .tracking(1.5)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
             }
 
             // Recent list
             if filteredItems.isEmpty {
                 Spacer()
-                VStack(spacing: 8) {
+                VStack(spacing: 10) {
                     Image(systemName: "doc.on.clipboard")
-                        .font(.system(size: 28, weight: .light))
-                        .foregroundStyle(.tertiary)
-                    Text(searchQuery.isEmpty ? "Clipboard history is empty" : "No matches")
+                        .font(.system(size: 32, weight: .ultraLight))
+                        .foregroundStyle(.secondary.opacity(0.3))
+                    Text(searchQuery.isEmpty ? "Nothing copied yet" : "No matches")
                         .font(.system(size: 13, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.secondary.opacity(0.5))
                 }
                 Spacer()
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 2) {
+                        LazyVStack(spacing: 1) {
                             ForEach(Array(filteredItems.enumerated()), id: \.element.id) { index, item in
                                 ClipItemRow(item: item, isSelected: index == selectedIndex)
                                     .id(item.id)
@@ -87,7 +109,7 @@ struct PanelContentView: View {
                                     }
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 2)
                         .padding(.horizontal, 6)
                     }
                     .onChange(of: selectedIndex) {
@@ -99,26 +121,24 @@ struct PanelContentView: View {
             }
 
             // Footer
-            Divider().opacity(0.3)
-            HStack {
-                Text("⌘⇧V to toggle")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.quaternary)
+            Divider().opacity(0.15)
+            HStack(spacing: 16) {
+                keyHint("⌘⇧V", "toggle")
+                keyHint("↵", "paste")
+                keyHint("⌫", "delete")
+                keyHint("esc", "close")
                 Spacer()
-                Text("↵ paste · ⌫ delete · esc close")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.quaternary)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
-        .background(.ultraThickMaterial)
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 10)
+        .shadow(color: .black.opacity(0.4), radius: 30, y: 10)
         .onKeyPress(.escape) {
             onDismiss()
             return .handled
@@ -152,6 +172,21 @@ struct PanelContentView: View {
         }
         .onChange(of: searchQuery) {
             selectedIndex = 0
+        }
+    }
+
+    private func keyHint(_ key: String, _ label: String) -> some View {
+        HStack(spacing: 3) {
+            Text(key)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary.opacity(0.4))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 3))
+            Text(label)
+                .font(.system(size: 9, design: .rounded))
+                .foregroundStyle(.secondary.opacity(0.3))
         }
     }
 }

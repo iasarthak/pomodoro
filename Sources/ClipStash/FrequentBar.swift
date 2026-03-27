@@ -6,11 +6,16 @@ struct FrequentBar: View {
     let onSelect: (ClipItem) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("FREQUENT")
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-                .tracking(1)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.orange.opacity(0.6))
+                Text("FREQUENT")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary.opacity(0.6))
+                    .tracking(1.5)
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -18,13 +23,24 @@ struct FrequentBar: View {
                         Button {
                             onSelect(item)
                         } label: {
-                            Text(chipText(item))
-                                .font(.system(size: 11, design: .rounded))
-                                .lineLimit(1)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(.ultraThinMaterial)
-                                .clipShape(Capsule())
+                            HStack(spacing: 4) {
+                                Text(chipText(item))
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.primary.opacity(0.85))
+
+                                Text("×\(item.copyCount)")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.secondary.opacity(0.5))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.white.opacity(0.06))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                            )
+                            .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -36,8 +52,8 @@ struct FrequentBar: View {
     private func chipText(_ item: ClipItem) -> String {
         let text = item.content.textValue ?? ""
         let clean = text.components(separatedBy: .newlines).first ?? text
-        if clean.count > 30 {
-            return String(clean.prefix(28)) + "..."
+        if clean.count > 28 {
+            return String(clean.prefix(26)) + "..."
         }
         return clean
     }

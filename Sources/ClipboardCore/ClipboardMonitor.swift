@@ -52,6 +52,9 @@ public class ClipboardMonitor {
 
         // Try text first
         if let string = pasteboard.string(forType: .string), !string.isEmpty {
+            // Skip HTML source noise — if it looks like raw HTML tags, ignore it
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if Self.looksLikeHTMLSource(trimmed) { return }
             onNewClip?(.text(string), sourceApp)
             return
         }
@@ -67,6 +70,24 @@ public class ClipboardMonitor {
             onNewClip?(.image(pngData), sourceApp)
             return
         }
+    }
+
+    /// Detect raw HTML source that shouldn't be stored as a useful clip
+    private static func looksLikeHTMLSource(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        // Starts with a tag or doctype
+        if lower.hasPrefix("<!doctype") || lower.hasPrefix("<html") || lower.hasPrefix("<head") { return true }
+        // HTML comments only
+        if lower.hasPrefix("<!--") && lower.hasSuffix("-->") { return true }
+        // Mostly tags: if >60% of content is inside angle brackets, it's HTML source
+        let tagChars = text.filter { $0 == "<" || $0 == ">" }.count
+        if text.count > 20 && Double(tagChars) / Double(text.count) > 0.1 {
+            // Count actual tags
+            let tagCount = text.components(separatedBy: "<").count - 1
+            let lineCount = max(1, text.components(separatedBy: .newlines).count)
+            if tagCount > lineCount * 2 { return true }
+        }
+        return false
     }
 
     deinit {

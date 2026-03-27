@@ -102,6 +102,7 @@ struct MenuBarView: View {
     @ObservedObject var history: ClipboardHistory
     let onTogglePanel: () -> Void
     @State private var selectedIndex = -1
+    @State private var keyMonitor: Any?
 
     private var visibleItems: [ClipItem] {
         Array(history.items.prefix(15))
@@ -192,41 +193,66 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                Button("Quit") { NSApp.terminate(nil) }
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundStyle(.secondary.opacity(0.4))
-                    .buttonStyle(.plain)
+                HStack(spacing: 8) {
+                    Text("↑↓ ↵")
+                        .font(.system(size: 9, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary.opacity(0.3))
+                    Button("Quit") { NSApp.terminate(nil) }
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(.secondary.opacity(0.4))
+                        .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .padding(.vertical, 8)
-        .onKeyPress(.downArrow) {
-            if selectedIndex < visibleItems.count - 1 {
-                selectedIndex += 1
-            }
-            return .handled
+        .onAppear {
+            selectedIndex = -1
+            installKeyMonitor()
         }
-        .onKeyPress(.upArrow) {
-            if selectedIndex > 0 {
-                selectedIndex -= 1
-            }
-            return .handled
+        .onDisappear {
+            removeKeyMonitor()
         }
-        .onKeyPress(.return) {
-            if let item = visibleItems[safe: selectedIndex] {
-                PasteService.shared.paste(item)
-            }
-            return .handled
-        }
-        .onKeyPress(.delete) {
-            if let item = visibleItems[safe: selectedIndex] {
-                history.removeItem(id: item.id)
-                if selectedIndex >= visibleItems.count {
-                    selectedIndex = max(0, visibleItems.count - 1)
+    }
+
+    private func installKeyMonitor() {
+        removeKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            switch Int(event.keyCode) {
+            case 125: // Down arrow
+                if selectedIndex < visibleItems.count - 1 {
+                    selectedIndex += 1
                 }
+                return nil
+            case 126: // Up arrow
+                if selectedIndex > 0 {
+                    selectedIndex -= 1
+                }
+                return nil
+            case 36: // Return
+                if let item = visibleItems[safe: selectedIndex] {
+                    PasteService.shared.paste(item)
+                }
+                return nil
+            case 51: // Delete
+                if let item = visibleItems[safe: selectedIndex] {
+                    history.removeItem(id: item.id)
+                    if selectedIndex >= visibleItems.count {
+                        selectedIndex = max(-1, visibleItems.count - 1)
+                    }
+                }
+                return nil
+            default:
+                return event
             }
-            return .handled
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let monitor = keyMonitor {
+            NSEvent.removeMonitor(monitor)
+            keyMonitor = nil
         }
     }
 

@@ -1,32 +1,31 @@
 #!/bin/bash
-# Build Pomodoro.app — wraps the SPM binary in a proper macOS app bundle
+# Build ClipStash.app — wraps the SPM binary in a proper macOS app bundle
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-APP_NAME="Pomodoro"
-BUNDLE_ID="com.sarthak.pomodoro"
+APP_NAME="ClipStash"
+BUNDLE_ID="com.sarthak.clipstash"
 APP_DIR="$SCRIPT_DIR/$APP_NAME.app"
 
 echo "Running tests..."
-swift run PomodoroTests 2>&1
+swift run ClipStashTests 2>&1
 if [ $? -ne 0 ]; then
     echo "Tests failed! Aborting build."
     exit 1
 fi
 
 echo "Building..."
-swift build -c release --product Pomodoro 2>&1
+swift build -c release --product ClipStash 2>&1
 
 echo "Creating app bundle..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-# Copy binary and icon
+# Copy binary
 cp ".build/release/$APP_NAME" "$APP_DIR/Contents/MacOS/$APP_NAME"
-cp "$SCRIPT_DIR/Sources/Pomodoro/AppIcon.icns" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << PLIST
@@ -52,10 +51,6 @@ cat > "$APP_DIR/Contents/Info.plist" << PLIST
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>NSUserNotificationAlertStyle</key>
-    <string>alert</string>
 </dict>
 </plist>
 PLIST

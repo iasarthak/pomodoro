@@ -283,8 +283,8 @@ struct SettingsPanel: View {
                 }
                 .labelsHidden()
                 .frame(width: 110)
-                .onChange(of: settings.soundName) { newValue in
-                    NSSound(named: newValue)?.play()
+                .onChange(of: settings.soundName) {
+                    NSSound(named: settings.soundName)?.play()
                 }
             }
             Divider().opacity(0.3)
